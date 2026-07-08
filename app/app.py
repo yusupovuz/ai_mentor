@@ -12,6 +12,10 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 from fastapi.responses import StreamingResponse,HTMLResponse
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langsmith import traceable
+from crewai import Agent,Task,Crew,Process,LLM
 
 load_dotenv()
 
@@ -28,6 +32,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl='login')
 
 class ChatMessage(BaseModel):
     text:str
+
+class ResearcherRequest(BaseModel):
+    topic:str
 
 class UserCreate(BaseModel):
     username:str
@@ -102,6 +109,7 @@ def get_current_user(token:str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401,detail='Token xato yoki soxta!')
 
 @app.post('/chat')
+@traceable(name="AI_Mentor_RAG_Pipeline")
 def send_message(
     message:ChatMessage,
     current_user:str=Depends(get_current_user),
@@ -113,16 +121,27 @@ def send_message(
         user = db.query(models.User).filter(models.User.username == current_user).first()
         past_messages = db.query(models.Message).filter(models.Message.owner_id == user.id).order_by(models.Message.id.asc()).all()[-5:]
 
+        search_results = vector_db.similarity_search(message.text,k=3)
+
+        context_text = '\n\n'.join([doc.page_content for doc in search_results])
+
+        system_prompt = f"""Sen tajribali va yordamga tayyor AI Mentorsan. 
+O'zbek tilida qisqa va lo'nda javob ber. 
+Foydalanuvchi savoliga javob berishda QAT'IY RAVISHDA quyidagi kitobdan olingan ma'lumotlarga asoslan:
+
+MA'LUMOTLAR:
+{context_text}
+"""
+        
         groq_messages = [
-             {
-                    'role':'system',
-                    'content':"Sen tajribali va yordamga tayyor AI Mentorsan. Dasturlash (ayniqsa Python va FastAPI) bo'yicha qisqa, aniq va lo'nda o'zbek tilida javob berasan."
-                },
+            {"role": "system", "content": system_prompt}
         ]
+        
 
         for msg in past_messages:
             groq_messages.append({'role':'user','content':msg.user_question})
             groq_messages.append({'role':'assistant','content':msg.ai_reply})
+
 
         groq_messages.append({'role':'user','content':message.text})
 
@@ -169,3 +188,59 @@ def get_chat_history(current_user: str = Depends(get_current_user),db:Session=De
 
     return {'user':current_user,'history':all_messages}
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(current_dir,'chroma_db')
+
+embeddings = HuggingFaceEmbeddings(model_name='all-MiniLM-L6-v2')
+vector_db = Chroma(persist_directory=db_path,embedding_function=embeddings)
+
+
+@app.post('/deep-research')
+def run_research_crew(
+    request:ResearcherRequest,
+    current_user: str=Depends(get_current_user)
+):
+    my_llm = LLM(
+        model='groq/llama-3.3-70b-versatile',
+        api_key=os.getenv('GROQ_API_KEY')
+    )
+    researcher = Agent(
+        role='Katta Tadqiqotchi',
+        goal=f'"{request.topic}" mavzusida eng aniq va chuqur texnik ma\'lumotlarni topish',
+        backstory='Sen katta tajribaga ega arxitektor va mutaxassissan.',
+        verbose=True,
+        allow_delegation=False,
+        llm=my_llm
+    )
+
+    writer = Agent(
+        role='Texnik Maqolalar Yozuvchisi',
+        goal='Tadqiqotchi topgan ma\'lumotlarni sodda va chiroyli tushuntirib berish',
+        backstory='Sen murakkab narsalarni oddiy odamlar tushunadigan tilda tushuntiruvchi ustozsan.',
+        verbose=True,
+        allow_delegation=False,
+        llm=my_llm
+    )
+    task1 = Task(
+        description=f'"{request.topic}" nima ekanligini, nima uchun kerakligini va qanday ishlashini o\'rganib chiq.',
+        expected_output='Mavzuning ishlash mantig\'i va aniq misollar.',
+        agent=researcher
+    )
+
+    task2 = Task(
+        description='Tadqiqotchining ma\'lumotidan foydalanib, yangi o\'rganayotganlar uchun qisqa va tushunarli o\'zbek tilida maqola yoz.',
+        expected_output='Qisqa, sodda tildagi maqola (Markdown formatida).',
+        agent=writer
+    )
+
+    my_crew = Crew(
+        agents=[researcher, writer],
+        tasks=[task1, task2],
+        process=Process.sequential
+    )
+
+    # Natijani olamiz (bu jarayon biroz vaqt oladi, chunki botlar o'ylaydi)
+    result = my_crew.kickoff()
+    
+    # Natijani mijozga API orqali qaytaramiz
+    return {"topic": request.topic, "article": str(result)}

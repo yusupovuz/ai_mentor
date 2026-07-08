@@ -17,6 +17,8 @@
             --primary-hover: #1a8f73;
             --text-main: #343541;
             --border-color: #e5e5e5;
+            --research-color: #5436da;
+            --research-hover: #432baf;
         }
 
         * {
@@ -192,7 +194,8 @@
         .chat-box {
             flex-grow: 1;
             overflow-y: auto;
-            padding-bottom: 100px;
+            padding-bottom: 120px;
+            /* Input area kattalashgani uchun joy ochdik */
         }
 
         .message-row {
@@ -204,6 +207,11 @@
 
         .message-row.ai {
             background-color: var(--chat-bg);
+        }
+
+        .message-row.research {
+            background-color: #f0f4ff;
+            /* Deep Research uchun maxsus rang */
         }
 
         .message-content {
@@ -233,6 +241,10 @@
             background-color: var(--primary-color);
         }
 
+        .avatar.crew {
+            background-color: var(--research-color);
+        }
+
         .text {
             white-space: pre-wrap;
             line-height: 1.6;
@@ -247,7 +259,30 @@
             padding: 20px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 30%);
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .loading-text {
+            color: var(--research-color);
+            font-size: 13px;
+            font-weight: bold;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.5;
+            }
         }
 
         .input-wrapper {
@@ -269,18 +304,34 @@
             font-size: 16px;
         }
 
-        .input-wrapper button {
-            padding: 0 20px;
+        .btn-chat {
+            padding: 0 15px;
             background: transparent;
             border: none;
             color: var(--primary-color);
             font-weight: bold;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
+            border-left: 1px solid var(--border-color);
         }
 
-        .input-wrapper button:hover {
+        .btn-chat:hover {
             background-color: var(--chat-bg);
+        }
+
+        .btn-research {
+            padding: 0 15px;
+            background: var(--research-color);
+            border: none;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+
+        .btn-research:hover {
+            background: var(--research-hover);
         }
     </style>
 </head>
@@ -302,7 +353,7 @@
             <h2>Ro'yxatdan o'tish</h2>
             <p id="reg-msg" style="color: red; font-size: 13px; text-align: center; margin-bottom: 10px;"></p>
             <input type="text" id="reg-username" placeholder="Yangi ism yarating">
-            <input type="password" id="reg-password" placeholder="Parol yarating (maks. 72 belgi)">
+            <input type="password" id="reg-password" placeholder="Parol (maks. 72 belgi)">
             <button onclick="register()">Ro'yxatdan o'tish</button>
             <div class="toggle-link" onclick="toggleAuth('login')">Akkauntingiz bormi? <span>Kirish</span></div>
         </div>
@@ -312,8 +363,7 @@
         <div class="sidebar">
             <button class="new-chat-btn" onclick="startNewChat()">+ Yangi Chat</button>
             <div class="history-title">Suhbatlar tarixi</div>
-            <div class="history-list" id="history-list">
-            </div>
+            <div class="history-list" id="history-list"></div>
             <button class="logout-btn" onclick="logout()">Chiqish</button>
         </div>
 
@@ -323,23 +373,26 @@
                 <span id="user-display" style="color: #666; font-size: 14px;"></span>
             </div>
 
-            <div class="chat-box" id="chat-box">
-            </div>
+            <div class="chat-box" id="chat-box"></div>
 
             <div class="input-area">
+                <div id="loading-indicator" class="loading-text hidden">
+                    🔍 AI Jamoasi izlanish olib bormoqda, iltimos kuting (15-30 soniya)...
+                </div>
                 <div class="input-wrapper">
-                    <input type="text" id="message-input" placeholder="Savolingizni yozing..."
+                    <input type="text" id="message-input" placeholder="Savolingizni yoki mavzuni yozing..."
                         onkeypress="if(event.key === 'Enter') sendMessage()">
-                    <button onclick="sendMessage()">Yuborish</button>
+                    <button class="btn-chat" onclick="sendMessage()">Oddiy Chat</button>
+                    <button class="btn-research" onclick="sendDeepResearch()">Deep Research</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Sizning eski JavaScript kodingiz to'liq saqlab qolindi
         let jwtToken = localStorage.getItem("token");
 
-        // Dastur yuklanganda tokenni tekshiramiz
         window.onload = () => {
             if (jwtToken) {
                 document.getElementById("auth-container").classList.add("hidden");
@@ -348,7 +401,6 @@
             }
         };
 
-        // Auth oynalarini almashtirish
         function toggleAuth(type) {
             document.getElementById("login-msg").innerText = "";
             document.getElementById("reg-msg").innerText = "";
@@ -361,18 +413,15 @@
             }
         }
 
-        // RO'YXATDAN O'TISH (Register)
         async function register() {
             const u = document.getElementById("reg-username").value;
             const p = document.getElementById("reg-password").value;
             const msgBox = document.getElementById("reg-msg");
-
             const res = await fetch("/register", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username: u, password: p })
             });
-
             if (res.ok) {
                 msgBox.style.color = "green";
                 msgBox.innerText = "Muvaffaqiyatli! Endi login qiling.";
@@ -384,27 +433,22 @@
             }
         }
 
-        // TIZIMGA KIRISH (Login)
         async function login() {
             const u = document.getElementById("log-username").value;
             const p = document.getElementById("log-password").value;
             const msgBox = document.getElementById("login-msg");
-
             const formData = new URLSearchParams();
             formData.append("username", u);
             formData.append("password", p);
-
             const res = await fetch("/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: formData
             });
-
             if (res.ok) {
                 const data = await res.json();
                 localStorage.setItem("token", data.access_token);
                 jwtToken = data.access_token;
-
                 document.getElementById("auth-container").classList.add("hidden");
                 document.getElementById("app-container").classList.remove("hidden");
                 loadHistory();
@@ -413,37 +457,28 @@
             }
         }
 
-        // TIZIMDAN CHIQISH
         function logout() {
             localStorage.removeItem("token");
             location.reload();
         }
 
-        // YANGI CHAT (Ekranni tozalash)
         function startNewChat() {
             document.getElementById("chat-box").innerHTML = "";
         }
 
-        // TARIXNI YUKLASH
         async function loadHistory() {
             if (!jwtToken) return;
-
             const res = await fetch("/history", {
                 headers: { "Authorization": `Bearer ${jwtToken}` }
             });
-
             if (res.ok) {
                 const data = await res.json();
                 document.getElementById("user-display").innerText = "Foydalanuvchi: " + data.user;
-
                 const historyList = document.getElementById("history-list");
                 historyList.innerHTML = "";
-
-                // Oxirgi xabarlar tepada turishi uchun teskari aylanamiz
                 data.history.reverse().forEach(msg => {
                     const item = document.createElement("div");
                     item.className = "history-item";
-                    // Savol uzun bo'lsa qirqib ko'rsatamiz
                     item.innerText = "💬 " + msg.user_question.substring(0, 25) + "...";
                     historyList.appendChild(item);
                 });
@@ -452,15 +487,13 @@
             }
         }
 
-        // XABAR YUBORISH VA STREAMING
+        // 1. ODDIY CHAT (Sizning eski Streaming funksiyangiz)
         async function sendMessage() {
             const input = document.getElementById("message-input");
             const text = input.value;
             if (!text) return;
-
             const chatBox = document.getElementById("chat-box");
 
-            // Mijoz xabarini ekranga chizish
             chatBox.innerHTML += `
             <div class="message-row">
                 <div class="message-content">
@@ -470,7 +503,6 @@
             </div>`;
             input.value = "";
 
-            // AI xabari uchun bo'sh joy tayyorlash
             const aiRowId = "ai-" + Date.now();
             chatBox.innerHTML += `
             <div class="message-row ai">
@@ -480,9 +512,8 @@
                 </div>
             </div>`;
             chatBox.scrollTop = chatBox.scrollHeight;
-
             const aiTextElement = document.getElementById(aiRowId);
-            aiTextElement.innerText = ""; // Uchta nuqtani olib tashlaymiz
+            aiTextElement.innerText = "";
 
             try {
                 const response = await fetch("/chat", {
@@ -493,6 +524,57 @@
                     },
                     body: JSON.stringify({ text: text })
                 });
+                if (response.status === 401) {
+                    alert("Token eskirgan, qayta kiring.");
+                    logout();
+                    return;
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value, { stream: true });
+                    aiTextElement.innerText += chunk;
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+                loadHistory();
+            } catch (e) {
+                aiTextElement.innerText = "Xatolik yuz berdi.";
+            }
+        }
+
+        // 2. YANGI QO'SHILGAN FUNKSIYA: Deep Research
+        async function sendDeepResearch() {
+            const input = document.getElementById("message-input");
+            const text = input.value;
+            if (!text) return;
+            const chatBox = document.getElementById("chat-box");
+            const loadingIndicator = document.getElementById("loading-indicator");
+
+            // Mijoz xabarini ekranga chizish
+            chatBox.innerHTML += `
+            <div class="message-row">
+                <div class="message-content">
+                    <div class="avatar user" style="background-color: var(--research-color);">S</div>
+                    <div class="text"><b>[Deep Research]:</b> ${text}</div>
+                </div>
+            </div>`;
+            input.value = "";
+
+            // Kutish matnini yoqamiz
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                const response = await fetch("/deep-research", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${jwtToken}`
+                    },
+                    // FastAPI'dagi ResearchRequest modeliga moslab yuboramiz
+                    body: JSON.stringify({ topic: text })
+                });
 
                 if (response.status === 401) {
                     alert("Token eskirgan, qayta kiring.");
@@ -500,23 +582,24 @@
                     return;
                 }
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    aiTextElement.innerText += chunk;
-                    chatBox.scrollTop = chatBox.scrollHeight;
+                if (response.ok) {
+                    const data = await response.json();
+                    chatBox.innerHTML += `
+                    <div class="message-row research">
+                        <div class="message-content">
+                            <div class="avatar crew">CRW</div>
+                            <div class="text">${data.article}</div>
+                        </div>
+                    </div>`;
+                } else {
+                    chatBox.innerHTML += `<div class="message-row"><div class="message-content"><div class="text">Serverdan xato qaytdi: ${response.status}</div></div></div>`;
                 }
-
-                // Xabar yozib bo'lingach tarixni yangilab qo'yamiz
-                loadHistory();
-
+                chatBox.scrollTop = chatBox.scrollHeight;
             } catch (e) {
-                aiTextElement.innerText = "Xatolik yuz berdi. Server ishlayotganini tekshiring.";
+                chatBox.innerHTML += `<div class="message-row"><div class="message-content"><div class="text">Ulanishda xatolik yuz berdi.</div></div></div>`;
+            } finally {
+                // Kutish matnini o'chiramiz
+                loadingIndicator.classList.add('hidden');
             }
         }
     </script>
