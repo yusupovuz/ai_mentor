@@ -12,7 +12,7 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 from fastapi.responses import StreamingResponse,HTMLResponse
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings,HuggingFaceInferenceAPIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langsmith import traceable
 from crewai import Agent,Task,Crew,Process,LLM
@@ -191,7 +191,10 @@ def get_chat_history(current_user: str = Depends(get_current_user),db:Session=De
 current_dir = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(current_dir,'chroma_db')
 
-embeddings = HuggingFaceEmbeddings(model_name='all-MiniLM-L6-v2')
+embeddings = HuggingFaceInferenceAPIEmbeddings(
+    api_key=os.getenv('HF_TOKEN'),
+    model_name='sentence-transformers/all-MiniLM-L6-v2'
+)
 vector_db = Chroma(persist_directory=db_path,embedding_function=embeddings)
 
 
